@@ -42,6 +42,17 @@ def onnx_export_ensemble(module, output_path, input_tuple, input_names, output_n
     for name, _ in module.named_parameters():
         input_names.append(name)
 
+    with open(os.path.basename(output_path)+'.onnx', "w+b") as netdef_file:
+        torch.onnx._export(
+            module,
+            input_tuple,
+            netdef_file,
+            verbose=False,
+            input_names=input_names,
+            output_names=output_names,
+            operator_export_type=OperatorExportTypes.ONNX_ATEN_FALLBACK,
+        )
+
     with open(output_path, "w+b") as netdef_file:
         torch.onnx._export(
             module,
@@ -135,6 +146,7 @@ def merge_transpose_and_batchmatmul(caffe2_backend_rep):
 
         if operator.type == "Transpose":
             transpose_last_axes = False
+            continue
             for arg in operator.arg._values:
                 if arg.name == "axes":
                     axes = arg.ints
