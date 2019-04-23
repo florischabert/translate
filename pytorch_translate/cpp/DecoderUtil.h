@@ -8,7 +8,8 @@ namespace pytorch {
 namespace translate {
 
 using BeamBestIndices = std::pair<int, int>;
-using DestroyCall = caffe2::Blob::DestroyCall;
+// using DestroyCall = caffe2::Blob::DestroyCall;
+typedef void (*DestroyCall)(void *);
 
 struct BeamSearchTopHypotheses {
   std::pair<int32_t, int32_t> bestIndices;
@@ -86,7 +87,7 @@ std::vector<T> tensorToVector1D(const caffe2::TensorCPU& tensor) {
 
 template <typename T>
 std::vector<std::vector<T>> tensorToVector2D(const caffe2::TensorCPU& tensor) {
-  const auto& dims = tensor.dims();
+  const auto& dims = tensor.sizes();
   const int m = dims[0];
   const int n = dims[1];
   std::vector<std::vector<T>> res(m, std::vector<T>(n));
@@ -101,7 +102,7 @@ std::vector<std::vector<T>> tensorToVector2D(const caffe2::TensorCPU& tensor) {
 template <typename T>
 std::vector<std::vector<std::vector<T>>> tensorToVector3D(
     const caffe2::TensorCPU& tensor) {
-  const auto& dims = tensor.dims();
+  const auto& dims = tensor.sizes();
   const int m = dims[0];
   const int n = dims[1];
   const int l = dims[2];

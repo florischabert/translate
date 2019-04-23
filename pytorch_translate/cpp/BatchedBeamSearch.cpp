@@ -70,54 +70,68 @@ BeamSearchOutput BatchedBeamSearch::beamSearch(
   encoderLenPointer[0] = numberizedInput.size();
 
   TensorMap inputMap;
-  inputMap["encoder_inputs"] = inputTensor;
-  inputMap["encoder_lengths"] = encoderLenTensor;
+  inputMap.emplace("encoder_inputs", inputTensor->Alias());
+  inputMap.emplace("encoder_lengths", encoderLenTensor->Alias());
+
+  std::cout << inputTensor->sizes() << std::endl;
+  auto inputTensorData = inputTensor->data<long>();
+  for (auto i = 0; i < inputTensor->size(); ++i) {
+    std::cout << inputTensorData[i] << ' ';
+  }
+  std::cout << std::endl;
+
+  std::cout << encoderLenTensor->sizes() << std::endl;
+  auto encoderLenTensorData = encoderLenTensor->data<int>();
+  for (auto i = 0; i < encoderLenTensor->size(); ++i) {
+    std::cout << encoderLenTensorData[i] << ' ';
+  }
+  std::cout << std::endl;
 
   TensorMap encoderOutputMap;
-  CAFFE_ENFORCE(encoder_->run_map_outputs(inputMap, &encoderOutputMap));
+  CAFFE_ENFORCE((*encoder_)(inputMap, &encoderOutputMap));
 
-  TensorMap stepInputMap = prepareInitialNextInputStepMap(
-      encoder_->output_names(), encoderOutputMap, &trackRawPointers);
+  // TensorMap stepInputMap = prepareInitialNextInputStepMap(
+  //     encoder_->output_names(), encoderOutputMap, &trackRawPointers);
 
-  for (int decoderStep = 0; decoderStep <= maxOutputSeqLen; ++decoderStep) {
-    TensorMap stepOutputMap;
-    CAFFE_ENFORCE(decoderStep_->run_map_outputs(stepInputMap, &stepOutputMap));
+  // for (int decoderStep = 0; decoderStep <= maxOutputSeqLen; ++decoderStep) {
+  //   TensorMap stepOutputMap;
+  //   CAFFE_ENFORCE((*decoderStep_)(stepInputMap, &stepOutputMap));
 
-    std::vector<long> bestTokensLong =
-        tensorToVector1D<long>(*stepOutputMap["best_tokens_indices"]);
-    tokenBeamList.emplace_back(
-        std::vector<int>(bestTokensLong.begin(), bestTokensLong.end()));
+  //   std::vector<long> bestTokensLong =
+  //       tensorToVector1D<long>(stepOutputMap["best_tokens_indices"]);
+  //   tokenBeamList.emplace_back(
+  //       std::vector<int>(bestTokensLong.begin(), bestTokensLong.end()));
 
-    std::vector<long> prevIndicesLong =
-        tensorToVector1D<long>(*stepOutputMap["prev_hypos_indices"]);
-    prevIndexBeamList.emplace_back(
-        std::vector<int>(prevIndicesLong.begin(), prevIndicesLong.end()));
+  //   std::vector<long> prevIndicesLong =
+  //       tensorToVector1D<long>(stepOutputMap["prev_hypos_indices"]);
+  //   prevIndexBeamList.emplace_back(
+  //       std::vector<int>(prevIndicesLong.begin(), prevIndicesLong.end()));
 
-    scoreBeamList.emplace_back(
-        tensorToVector1D<float>(*stepOutputMap["best_scores"]));
-    attentionWeightsBeamList.emplace_back(
-        tensorToVector2D<float>(*stepOutputMap["attention_weights_average"]));
+  //   scoreBeamList.emplace_back(
+  //       tensorToVector1D<float>(stepOutputMap["best_scores"]));
+  //   attentionWeightsBeamList.emplace_back(
+  //       tensorToVector2D<float>(stepOutputMap["attention_weights_average"]));
 
-    stepInputMap = prepareNextInputStepMap(
-        encoder_->output_names(),
-        decoderStep_->output_names(),
-        encoderOutputMap,
-        stepOutputMap,
-        decoderStep + 1,
-        &trackRawPointers);
-  }
+  //   stepInputMap = prepareNextInputStepMap(
+  //       encoder_->output_names(),
+  //       decoderStep_->output_names(),
+  //       encoderOutputMap,
+  //       stepOutputMap,
+  //       decoderStep + 1,
+  //       &trackRawPointers);
+  // }
 
-  BeamSearchOutput output(
-      maxOutputSeqLen,
-      tokenBeamList,
-      scoreBeamList,
-      prevIndexBeamList,
-      attentionWeightsBeamList);
+  // BeamSearchOutput output(
+  //     maxOutputSeqLen,
+  //     tokenBeamList,
+  //     scoreBeamList,
+  //     prevIndexBeamList,
+  //     attentionWeightsBeamList);
   // Clean up memory used by intermediate tensors/blobs.
-  for (const auto& kv : trackRawPointers) {
-    kv.second(kv.first);
-  }
-  return output;
+  // for (const auto& kv : trackRawPointers) {
+  //   kv.second(kv.first);
+  // }
+  return BeamSearchOutput();
 }
 
 TensorMap BatchedBeamSearch::prepareInitialNextInputStepMap(
@@ -133,14 +147,14 @@ TensorMap BatchedBeamSearch::prepareInitialNextInputStepMap(
   for (const std::string& encoderOutputName : encoderOutputNames) {
     if (std::regex_search(encoderOutputName, regexMatch, encoderOutputRegex)) {
       initialInputStepMap["fixed_input_" + regexMatch.str(1)] =
-          encoderOutputMap.at(encoderOutputName);
+          encoderOutputMap.at(encoderOutputName).Alias();
     } else if (std::regex_search(
                    encoderOutputName, regexMatch, initialStateRegex)) {
       initialInputStepMap["state_input_" + regexMatch.str(1)] =
-          encoderOutputMap.at(encoderOutputName);
+          encoderOutputMap.at(encoderOutputName).Alias();
     } else if (encoderOutputName == "possible_translation_tokens") {
       initialInputStepMap["possible_translation_tokens"] =
-          encoderOutputMap.at(encoderOutputName);
+          encoderOutputMap.at(encoderOutputName).Alias();
     } else {
       throw std::runtime_error(
           "Encoder output blob names should match "
@@ -153,36 +167,36 @@ TensorMap BatchedBeamSearch::prepareInitialNextInputStepMap(
   auto initialTimestepBlob = caffe2::make_unique<caffe2::Blob>();
   auto* initialTimestepTensor =
       BlobGetMutableTensor(initialTimestepBlob.get(), caffe2::CPU);
-  auto timestepDeleter = initialTimestepBlob->Release();
-  if (timestepDeleter != nullptr) {
-    (*trackRawPointers)[initialTimestepTensor] = timestepDeleter;
-  }
+  // auto timestepDeleter = initialTimestepBlob->Release();
+  // if (timestepDeleter != nullptr) {
+  //   (*trackRawPointers)[initialTimestepTensor] = timestepDeleter;
+  // }
   initialTimestepTensor->Resize(1);
   initialTimestepTensor->mutable_data<int>()[0] = 0;
 
   auto initialPrevtokenBlob = caffe2::make_unique<caffe2::Blob>();
   auto* initialPrevtokenTensor =
       BlobGetMutableTensor(initialPrevtokenBlob.get(), caffe2::CPU);
-  auto prevtokenDeleter = initialPrevtokenBlob->Release();
-  if (prevtokenDeleter != nullptr) {
-    (*trackRawPointers)[initialPrevtokenTensor] = prevtokenDeleter;
-  }
+  // auto prevtokenDeleter = initialPrevtokenBlob->Release();
+  // if (prevtokenDeleter != nullptr) {
+  //   (*trackRawPointers)[initialPrevtokenTensor] = prevtokenDeleter;
+  // }
   initialPrevtokenTensor->Resize(1);
   initialPrevtokenTensor->mutable_data<int>()[0] = kEosId;
 
   auto initialPrevScoresBlob = caffe2::make_unique<caffe2::Blob>();
   auto* initialPrevScoresTensor =
       BlobGetMutableTensor(initialPrevScoresBlob.get(), caffe2::CPU);
-  auto prevScoresDeleter = initialPrevScoresBlob->Release();
-  if (prevScoresDeleter != nullptr) {
-    (*trackRawPointers)[initialPrevScoresTensor] = prevScoresDeleter;
-  }
+  // auto prevScoresDeleter = initialPrevScoresBlob->Release();
+  // if (prevScoresDeleter != nullptr) {
+  //   (*trackRawPointers)[initialPrevScoresTensor] = prevScoresDeleter;
+  // }
   initialPrevScoresTensor->Resize(1);
   initialPrevScoresTensor->mutable_data<float>()[0] = 0.0;
 
-  initialInputStepMap["timestep"] = initialTimestepTensor;
-  initialInputStepMap["prev_tokens"] = initialPrevtokenTensor;
-  initialInputStepMap["prev_scores"] = initialPrevScoresTensor;
+  initialInputStepMap["timestep"] = initialTimestepTensor->Alias();
+  initialInputStepMap["prev_tokens"] = initialPrevtokenTensor->Alias();
+  initialInputStepMap["prev_scores"] = initialPrevScoresTensor->Alias();
 
   return initialInputStepMap;
 }
@@ -207,17 +221,17 @@ TensorMap BatchedBeamSearch::prepareNextInputStepMap(
     for (const std::string& encoderOutputName : encoderOutputNames) {
       if (std::regex_search(
               encoderOutputName, regexMatch, encoderOutputRegex)) {
-        caffe2::TensorCPU* untiledTensor = encoderOutputMap[encoderOutputName];
+        caffe2::TensorCPU &untiledTensor = encoderOutputMap[encoderOutputName];
 
         auto tiledEncoderOutputsBlob = caffe2::make_unique<caffe2::Blob>();
         caffe2::TensorCPU* tiledEncoderOutputTensor =
             BlobGetMutableTensor(tiledEncoderOutputsBlob.get(), caffe2::CPU);
-        auto sourceLength = untiledTensor->dims()[0];
-        auto hiddenSize = untiledTensor->dims()[2];
+        auto sourceLength = untiledTensor.sizes()[0];
+        auto hiddenSize = untiledTensor.sizes()[2];
         tiledEncoderOutputTensor->Resize(sourceLength, beamSize_, hiddenSize);
         auto* tiledEncoderOutputPointer =
             tiledEncoderOutputTensor->mutable_data<float>();
-        auto* untiledPointer = untiledTensor->data<float>();
+        auto* untiledPointer = untiledTensor.data<float>();
         for (int i = 0; i < sourceLength; ++i) {
           for (int j = 0; j < beamSize_; ++j) {
             auto tiledIndex = i * beamSize_ * hiddenSize + j * hiddenSize;
@@ -228,12 +242,12 @@ TensorMap BatchedBeamSearch::prepareNextInputStepMap(
                 sizeof(float) * hiddenSize);
           }
         }
-        encoderOutputMap[encoderOutputName] = tiledEncoderOutputTensor;
-        auto tiledEncoderOutputsDeleter = tiledEncoderOutputsBlob->Release();
-        if (tiledEncoderOutputsDeleter != nullptr) {
-          (*trackRawPointers)[tiledEncoderOutputTensor] =
-              tiledEncoderOutputsDeleter;
-        }
+        encoderOutputMap[encoderOutputName] = tiledEncoderOutputTensor->Alias();
+        // auto tiledEncoderOutputsDeleter = tiledEncoderOutputsBlob->Release();
+        // if (tiledEncoderOutputsDeleter != nullptr) {
+        //   (*trackRawPointers)[tiledEncoderOutputTensor] =
+        //       tiledEncoderOutputsDeleter;
+        // }
       }
     }
   }
@@ -241,31 +255,31 @@ TensorMap BatchedBeamSearch::prepareNextInputStepMap(
   for (const std::string& encoderOutputName : encoderOutputNames) {
     if (std::regex_search(encoderOutputName, regexMatch, encoderOutputRegex)) {
       inputStepMap["fixed_input_" + regexMatch.str(1)] =
-          encoderOutputMap[encoderOutputName];
+          encoderOutputMap[encoderOutputName].Alias();
     } else if (encoderOutputName == "possible_translation_tokens") {
       inputStepMap["possible_translation_tokens"] =
-          encoderOutputMap[encoderOutputName];
+          encoderOutputMap[encoderOutputName].Alias();
     }
   }
   for (const std::string& stepOutputName : stepOutputNames) {
     if (std::regex_search(stepOutputName, regexMatch, stepOutputRegex)) {
       inputStepMap["state_input_" + regexMatch.str(1)] =
-          stepOutputMap.at(stepOutputName);
+          stepOutputMap.at(stepOutputName).Alias();
     }
   }
 
   auto timestepBlob = caffe2::make_unique<caffe2::Blob>();
   auto* timestepTensor = BlobGetMutableTensor(timestepBlob.get(), caffe2::CPU);
-  auto timestepDeleter = timestepBlob->Release();
-  if (timestepDeleter != nullptr) {
-    (*trackRawPointers)[timestepTensor] = timestepDeleter;
-  }
+  // auto timestepDeleter = timestepBlob->Release();
+  // if (timestepDeleter != nullptr) {
+    // (*trackRawPointers)[timestepTensor] = timestepDeleter;
+  // }
   timestepTensor->Resize(1);
   timestepTensor->mutable_data<int>()[0] = timeStep;
 
-  inputStepMap["timestep"] = timestepTensor;
-  inputStepMap["prev_tokens"] = stepOutputMap.at("best_tokens_indices");
-  inputStepMap["prev_scores"] = stepOutputMap.at("best_scores");
+  inputStepMap["timestep"] = timestepTensor->Alias();
+  inputStepMap["prev_tokens"] = stepOutputMap.at("best_tokens_indices").Alias();
+  inputStepMap["prev_scores"] = stepOutputMap.at("best_scores").Alias();
 
   return inputStepMap;
 }

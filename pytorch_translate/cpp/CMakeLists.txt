@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 2.8.12 FATAL_ERROR)
 
+include_directories(
+	"/opt/pytorch/pytorch/third_party/protobuf/src"
+	"/opt/conda/include"
+	"/opt/pytorch/pytorch"
+)
+
 # We need at least GCC 4.9 for regex support, and the PyTorch+Caffe2
 # combined conda package was compiled with GCC 4.9.2.
 set(GCC_MIN_VERSION 4.9.2)

@@ -18,8 +18,8 @@ export LD_LIBRARY_PATH
 cat | pytorch_translate/cpp/build/translation_decoder \
   --encoder_model "encoder.pb" \
   --decoder_step_model "decoder.pb" \
-  --source_vocab_path "model/dictionary-de.txt" \
-  --target_vocab_path "model/dictionary-en.txt" \
+  --source_vocab_path "checkpoints/dictionary-de.txt" \
+  --target_vocab_path "checkpoints/dictionary-en.txt" \
   `# Tuneable parameters` \
   --beam_size 6 \
   --max_out_seq_len_mult 1.1 \

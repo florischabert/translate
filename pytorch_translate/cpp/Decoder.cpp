@@ -35,6 +35,7 @@ installation done by install.sh and that you're in the cpp directory):
 
 namespace pyt = pytorch::translate;
 
+namespace c10 {
 C10_DEFINE_string(encoder_model, "", "Encoder model path");
 C10_DEFINE_string(decoder_step_model, "", "Decoder step model path");
 C10_DEFINE_string(source_vocab_path, "", "Source vocab file");
@@ -70,6 +71,7 @@ C10_DEFINE_double(
     length_penalty,
     0,
     "Hypothesis score is divided by (numwords ^ length_penalty)");
+}
 
 int main(int argc, char** argv) {
   // Sets up command line flag parsing, etc.
