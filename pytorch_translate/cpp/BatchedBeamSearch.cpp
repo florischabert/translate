@@ -73,65 +73,51 @@ BeamSearchOutput BatchedBeamSearch::beamSearch(
   inputMap.emplace("encoder_inputs", inputTensor->Alias());
   inputMap.emplace("encoder_lengths", encoderLenTensor->Alias());
 
-  std::cout << inputTensor->sizes() << std::endl;
-  auto inputTensorData = inputTensor->data<long>();
-  for (auto i = 0; i < inputTensor->size(); ++i) {
-    std::cout << inputTensorData[i] << ' ';
-  }
-  std::cout << std::endl;
-
-  std::cout << encoderLenTensor->sizes() << std::endl;
-  auto encoderLenTensorData = encoderLenTensor->data<int>();
-  for (auto i = 0; i < encoderLenTensor->size(); ++i) {
-    std::cout << encoderLenTensorData[i] << ' ';
-  }
-  std::cout << std::endl;
-
   TensorMap encoderOutputMap;
   CAFFE_ENFORCE((*encoder_)(inputMap, &encoderOutputMap));
 
-  // TensorMap stepInputMap = prepareInitialNextInputStepMap(
-  //     encoder_->output_names(), encoderOutputMap, &trackRawPointers);
+  TensorMap stepInputMap = prepareInitialNextInputStepMap(
+      encoder_->output_names(), encoderOutputMap, &trackRawPointers);
 
-  // for (int decoderStep = 0; decoderStep <= maxOutputSeqLen; ++decoderStep) {
-  //   TensorMap stepOutputMap;
-  //   CAFFE_ENFORCE((*decoderStep_)(stepInputMap, &stepOutputMap));
+  for (int decoderStep = 0; decoderStep <= maxOutputSeqLen; ++decoderStep) {
+    TensorMap stepOutputMap;
+    CAFFE_ENFORCE((*decoderStep_)(stepInputMap, &stepOutputMap));
 
-  //   std::vector<long> bestTokensLong =
-  //       tensorToVector1D<long>(stepOutputMap["best_tokens_indices"]);
-  //   tokenBeamList.emplace_back(
-  //       std::vector<int>(bestTokensLong.begin(), bestTokensLong.end()));
+    std::vector<long> bestTokensLong =
+        tensorToVector1D<long>(stepOutputMap["best_tokens_indices"]);
+    tokenBeamList.emplace_back(
+        std::vector<int>(bestTokensLong.begin(), bestTokensLong.end()));
 
-  //   std::vector<long> prevIndicesLong =
-  //       tensorToVector1D<long>(stepOutputMap["prev_hypos_indices"]);
-  //   prevIndexBeamList.emplace_back(
-  //       std::vector<int>(prevIndicesLong.begin(), prevIndicesLong.end()));
+    std::vector<long> prevIndicesLong =
+        tensorToVector1D<long>(stepOutputMap["prev_hypos_indices"]);
+    prevIndexBeamList.emplace_back(
+        std::vector<int>(prevIndicesLong.begin(), prevIndicesLong.end()));
 
-  //   scoreBeamList.emplace_back(
-  //       tensorToVector1D<float>(stepOutputMap["best_scores"]));
-  //   attentionWeightsBeamList.emplace_back(
-  //       tensorToVector2D<float>(stepOutputMap["attention_weights_average"]));
+    scoreBeamList.emplace_back(
+        tensorToVector1D<float>(stepOutputMap["best_scores"]));
+    attentionWeightsBeamList.emplace_back(
+        tensorToVector2D<float>(stepOutputMap["attention_weights_average"]));
 
-  //   stepInputMap = prepareNextInputStepMap(
-  //       encoder_->output_names(),
-  //       decoderStep_->output_names(),
-  //       encoderOutputMap,
-  //       stepOutputMap,
-  //       decoderStep + 1,
-  //       &trackRawPointers);
-  // }
+    stepInputMap = prepareNextInputStepMap(
+        encoder_->output_names(),
+        decoderStep_->output_names(),
+        encoderOutputMap,
+        stepOutputMap,
+        decoderStep + 1,
+        &trackRawPointers);
+  }
 
-  // BeamSearchOutput output(
-  //     maxOutputSeqLen,
-  //     tokenBeamList,
-  //     scoreBeamList,
-  //     prevIndexBeamList,
-  //     attentionWeightsBeamList);
+  BeamSearchOutput output(
+      maxOutputSeqLen,
+      tokenBeamList,
+      scoreBeamList,
+      prevIndexBeamList,
+      attentionWeightsBeamList);
   // Clean up memory used by intermediate tensors/blobs.
-  // for (const auto& kv : trackRawPointers) {
-  //   kv.second(kv.first);
-  // }
-  return BeamSearchOutput();
+  for (const auto& kv : trackRawPointers) {
+    kv.second(kv.first);
+  }
+  return output;
 }
 
 TensorMap BatchedBeamSearch::prepareInitialNextInputStepMap(

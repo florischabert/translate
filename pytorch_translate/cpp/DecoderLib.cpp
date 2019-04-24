@@ -200,8 +200,8 @@ std::vector<TranslationResult> NmtDecoder::translateNBest(
   BeamSearchOutput beamSearchOutput;
   beamSearchOutput = batchedBeamSearch_->beamSearch(
       numberizedTokens, maxOutputSeqLen, reverseSource_);
-  // nbestHypotheses = getNBestHypotheses(
-      // beamSearchOutput, numberizedTokens, lengthPenalty_, nBest);
+  nbestHypotheses = getNBestHypotheses(
+      beamSearchOutput, numberizedTokens, lengthPenalty_, nBest);
 
   for (auto& hypothesis : nbestHypotheses) {
     TranslationResult result;
