@@ -25,6 +25,7 @@ from pytorch_translate.ensemble_export import (
 )
 from pytorch_translate.research.knowledge_distillation import (  # noqa
     dual_decoder_kd_model,
+    hybrid_dual_decoder_kd_model,
 )
 from pytorch_translate.tasks import pytorch_translate_task as tasks
 from pytorch_translate.test import utils as test_utils
@@ -489,8 +490,19 @@ class TestONNX(unittest.TestCase):
         test_args = test_utils.ModelParamsDict(arch="dual_decoder_kd")
         self._test_ensemble_encoder_export(test_args)
 
-    def test_batched_beam_decoder_dual_decoder_vocab_reduction(self):
-        test_args = test_utils.ModelParamsDict(arch="dual_decoder_kd")
+    def test_batched_beam_decoder_hybrid_reduced_attention(self):
+        test_args = test_utils.ModelParamsDict(arch="hybrid_transformer_rnn")
+        test_args.decoder_reduced_attention_dim = 10
+        lexical_dictionaries = test_utils.create_lexical_dictionaries()
+        test_args.vocab_reduction_params = {
+            "lexical_dictionaries": lexical_dictionaries,
+            "num_top_words": 5,
+            "max_translation_candidates_per_word": 1,
+        }
+        self._test_batched_beam_decoder_step(test_args)
+
+    def test_batched_beam_decoder_hybrid_dual_decoder_vocab_reduction(self):
+        test_args = test_utils.ModelParamsDict(arch="hybrid_dual_decoder_kd")
         lexical_dictionaries = test_utils.create_lexical_dictionaries()
         test_args.vocab_reduction_params = {
             "lexical_dictionaries": lexical_dictionaries,

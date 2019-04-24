@@ -5,14 +5,8 @@ from collections import OrderedDict
 from fairseq import models
 from fairseq.data import RoundRobinZipDatasets, noising
 from fairseq.tasks import register_task
-from pytorch_translate import (
-    char_data,
-    constants,
-    data as pytorch_translate_data,
-    data_utils,
-    utils,
-    weighted_data,
-)
+from pytorch_translate import constants, utils
+from pytorch_translate.data import utils as data_utils, weighted_data
 from pytorch_translate.semi_supervised import SemiSupervisedModel
 from pytorch_translate.tasks.pytorch_translate_task import PytorchTranslateTask
 from pytorch_translate.tasks.semi_supervised_task import PytorchTranslateSemiSupervised

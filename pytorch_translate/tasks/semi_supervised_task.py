@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 
 import json
-import os
 from collections import OrderedDict
 from typing import Optional
 
-import torch
 from fairseq import models
 from fairseq.data import (
     BacktranslationDataset,
@@ -14,7 +12,6 @@ from fairseq.data import (
     RoundRobinZipDatasets,
     TransformEosDataset,
     data_utils,
-    iterators,
 )
 from fairseq.models import FairseqMultiModel
 from fairseq.tasks import register_task
@@ -22,105 +19,16 @@ from fairseq.tasks.multilingual_translation import MultilingualTranslationTask
 from pytorch_translate import (
     beam_decode,
     constants,
-    data as ptt_data,
-    data_utils as ptt_data_utils,
     dictionary as pytorch_translate_dictionary,
     rnn,
+)
+from pytorch_translate.data import (
+    data as ptt_data,
+    iterators as ptt_iterators,
+    utils as ptt_data_utils,
     weighted_data,
 )
 from pytorch_translate.tasks.pytorch_translate_task import PytorchTranslateTask
-
-
-class WeightedEpochBatchIterator(iterators.EpochBatchIterator):
-    def __init__(
-        self,
-        dataset,
-        collate_fn,
-        batch_sampler,
-        seed=1,
-        num_shards=1,
-        shard_id=0,
-        num_workers=0,
-        weights=None,
-    ):
-        """
-        Extension of fairseq.iterators.EpochBatchIterator to use an additional
-        weights structure. This weighs datasets as a function of epoch value.
-
-        Args:
-            dataset (~torch.utils.data.Dataset): dataset from which to load the data
-            collate_fn (callable): merges a list of samples to form a mini-batch
-            batch_sampler (~torch.utils.data.Sampler): an iterator over batches of
-                indices
-            seed (int, optional): seed for random number generator for
-                reproducibility (default: 1).
-            num_shards (int, optional): shard the data iterator into N
-                shards (default: 1).
-            shard_id (int, optional): which shard of the data iterator to
-                return (default: 0).
-            num_workers (int, optional): how many subprocesses to use for data
-                loading. 0 means the data will be loaded in the main process
-                (default: 0).
-            weights: is of the format [(epoch, {dataset: weight})]
-        """
-        super().__init__(
-            dataset=dataset,
-            collate_fn=collate_fn,
-            batch_sampler=batch_sampler,
-            seed=seed,
-            num_shards=num_shards,
-            shard_id=shard_id,
-            num_workers=num_workers,
-        )
-        self.weights = weights
-
-    def next_epoch_itr(self, shuffle=True, fix_batches_to_gpus=False):
-        """Return a new iterator over the dataset.
-
-        Args:
-            shuffle (bool, optional): shuffle batches before returning the
-                iterator. Default: ``True``
-            fix_batches_to_gpus: ensure that batches are always
-                allocated to the same shards across epochs. Requires
-                that :attr:`dataset` supports prefetching. Default:
-                ``False``
-        """
-        if self.weights:
-            """
-            Set dataset weight based on schedule and current epoch
-            """
-            prev_scheduled_epochs = 0
-            dataset_weights_map = None
-            for schedule in self.weights:
-                # schedule looks like (num_epochs, {dataset: weight})
-                if self.epoch <= schedule[0] + prev_scheduled_epochs:
-                    dataset_weights_map = schedule[1]
-                    break
-                prev_scheduled_epochs += schedule[0]
-            # Use last weights map if weights map is not specified for the current epoch
-            if dataset_weights_map is None:
-                dataset_weights_map = self.weights[-1][1]
-            for dataset_name in self.dataset.datasets:
-                if dataset_name in dataset_weights_map:
-                    assert isinstance(
-                        self.dataset.datasets[dataset_name],
-                        weighted_data.WeightedLanguagePairDataset,
-                    ) or isinstance(
-                        self.dataset.datasets[dataset_name],
-                        weighted_data.WeightedBacktranslationDataset,
-                    )
-                    self.dataset.datasets[dataset_name].weights = [
-                        dataset_weights_map[dataset_name]
-                    ]
-        if self._next_epoch_itr is not None:
-            self._cur_epoch_itr = self._next_epoch_itr
-            self._next_epoch_itr = None
-        else:
-            self.epoch += 1
-            self._cur_epoch_itr = self._get_iterator_for_epoch(
-                self.epoch, shuffle, fix_batches_to_gpus=fix_batches_to_gpus
-            )
-        return self._cur_epoch_itr
 
 
 @register_task(constants.SEMI_SUPERVISED_TASK)
@@ -146,15 +54,12 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
             f"{self.target_lang}-{self.source_lang}",
         ]
         self.training = training
-        # TODO: Generalize this to be able to use other model classes like Transformer
-        self.model_cls = rnn.RNNModel
         self.remove_eos_from_source = not args.append_eos_to_source
         self.args = args
         # This is explicitly set so that we can re-use code from
         # MultilingualTranslationTask
         self.args.lang_pairs = self.lang_pairs
         self.model = None
-        # TODO: Expose this as easy-to-use command line argument
         """
         loss_weights refers to weights given to training loss for constituent
         models for specified number of epochs. If we don't specify a model, they
@@ -374,7 +279,8 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
             )
 
             def generate_fn(generator):
-                def _generate_fn(net_input):
+                def _generate_fn(sample):
+                    net_input = sample["net_input"]
                     maxlen = int(
                         self.args.max_len_a * net_input["src_tokens"].size(1)
                         + self.args.max_len_b
@@ -394,6 +300,7 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
                         # Remove EOS from the input before backtranslation.
                         remove_eos_from_src=True,
                     ),
+                    src_dict=self.source_dictionary,
                     backtranslation_fn=generate_fn(bwd_generator),
                     output_collater=TransformEosDataset(
                         dataset=tgt_dataset,
@@ -413,6 +320,7 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
             ] = weighted_data.WeightedBacktranslationDataset(
                 dataset=BacktranslationDataset(
                     tgt_dataset=src_dataset,
+                    src_dict=self.source_dictionary,
                     backtranslation_fn=generate_fn(fwd_generator),
                     output_collater=TransformEosDataset(
                         dataset=src_dataset,
@@ -449,14 +357,8 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
             )
         forward_pair = "-".join([self.source_lang, self.target_lang])
         backward_pair = "-".join([self.target_lang, self.source_lang])
-        self.forward_model = self.model_cls(
-            self, model.models[forward_pair].encoder, model.models[forward_pair].decoder
-        )
-        self.backward_model = self.model_cls(
-            self,
-            model.models[backward_pair].encoder,
-            model.models[backward_pair].decoder,
-        )
+        self.forward_model = model.models[forward_pair]
+        self.backward_model = model.models[backward_pair]
         return model
 
     def train_step(self, sample, model, criterion, optimizer, ignore_grad=False):
@@ -465,25 +367,7 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
         )
 
     def valid_step(self, sample, model, criterion):
-        """
-        Calculate and collect loss from all models in the task on the eval dataset
-        This method is copied from MultilingualTranslationTask, except we make a
-        direct reference to self.eval_lang_pairs
-        """
-        model.eval()
-        with torch.no_grad():
-            agg_loss, agg_sample_size, agg_logging_output = 0.0, 0.0, {}
-            for lang_pair in self.eval_lang_pairs:
-                if sample[lang_pair] is None or len(sample[lang_pair]) == 0:
-                    continue
-                loss, sample_size, logging_output = criterion(
-                    model.models[lang_pair], sample[lang_pair]
-                )
-                agg_loss += loss.data.item()
-                # TODO make summing of the sample sizes configurable
-                agg_sample_size += sample_size
-                agg_logging_output[lang_pair] = logging_output
-        return agg_loss, agg_sample_size, agg_logging_output
+        return MultilingualTranslationTask.valid_step(self, sample, model, criterion)
 
     def init_logging_output(self, sample):
         return MultilingualTranslationTask.init_logging_output(sample)
@@ -492,38 +376,9 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
         return MultilingualTranslationTask.grad_denom(self, sample_sizes, criterion)
 
     def aggregate_logging_outputs(self, logging_outputs, criterion):
-        """
-        Aggregate logging outputs for each language pair
-        This method is copied from MultilingualTranslationTask, except we make a
-        direct reference to self.eval_lang_pairs
-        """
-        agg_logging_outputs = {
-            lang_pair: criterion.__class__.aggregate_logging_outputs(
-                [
-                    logging_output.get(lang_pair, {})
-                    for logging_output in logging_outputs
-                ]
-            )
-            for lang_pair in self.eval_lang_pairs
-        }
-
-        def sum_over_languages(key):
-            return sum(
-                logging_output[key] for logging_output in agg_logging_outputs.values()
-            )
-
-        # flatten logging outputs
-        flat_logging_output = {
-            "{}:{}".format(lang_pair, k): v
-            for lang_pair, agg_logging_output in agg_logging_outputs.items()
-            for k, v in agg_logging_output.items()
-        }
-        flat_logging_output["loss"] = sum_over_languages("loss")
-        flat_logging_output["nll_loss"] = sum_over_languages("nll_loss")
-        flat_logging_output["sample_size"] = sum_over_languages("sample_size")
-        flat_logging_output["nsentences"] = sum_over_languages("nsentences")
-        flat_logging_output["ntokens"] = sum_over_languages("ntokens")
-        return flat_logging_output
+        return MultilingualTranslationTask.aggregate_logging_outputs(
+            self, logging_outputs, criterion
+        )
 
     def get_batch_iterator(
         self,
@@ -562,7 +417,7 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
         )
 
         # return a reusable, sharded iterator
-        return WeightedEpochBatchIterator(
+        return ptt_iterators.WeightedEpochBatchIterator(
             dataset=dataset,
             collate_fn=dataset.collater,
             batch_sampler=batch_sampler,
@@ -571,32 +426,6 @@ class PytorchTranslateSemiSupervised(PytorchTranslateTask):
             shard_id=shard_id,
             num_workers=num_workers,
             weights=self.loss_weights,
-        )
-
-    def get_eval_batch_iterator(
-        self,
-        dataset,
-        max_tokens=None,
-        max_sentences=None,
-        max_positions=None,
-        ignore_invalid_inputs=False,
-        required_batch_size_multiple=1,
-        seed=1,
-        num_shards=1,
-        shard_id=0,
-        num_workers=0,
-    ):
-        return super(PytorchTranslateSemiSupervised, self).get_batch_iterator(
-            dataset=dataset,
-            max_tokens=max_tokens,
-            max_sentences=max_sentences,
-            max_positions=max_positions,
-            ignore_invalid_inputs=ignore_invalid_inputs,
-            required_batch_size_multiple=required_batch_size_multiple,
-            seed=seed,
-            num_shards=num_shards,
-            shard_id=shard_id,
-            num_workers=num_workers,
         )
 
     @property

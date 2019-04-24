@@ -54,7 +54,24 @@ class ModelParamsDict:
             self.student_decoder_layers = 2
             self.student_decoder_attention_heads = 2
             self.student_decoder_lstm_units = 7
-            self.student_dcoder_out_embed_dim = 4
+            self.student_decoder_out_embed_dim = 4
+            self.student_decoder_reduced_attention_dim = 8
+        elif arch == "hybrid_dual_decoder_kd":
+            self.arch = "hybrid_dual_decoder_kd"
+            self.encoder_embed_dim = 10
+            self.encoder_ffn_embed_dim = 16
+            self.encoder_layers = 2
+            self.encoder_attention_heads = 2
+            self.decoder_embed_dim = 10
+            self.decoder_lstm_units = 16
+            self.decoder_layers = 2
+            self.decoder_attention_heads = 2
+            self.student_decoder_embed_dim = 5
+            self.student_decoder_layers = 2
+            self.student_decoder_attention_heads = 2
+            self.student_decoder_lstm_units = 7
+            self.student_decoder_out_embed_dim = 4
+            self.student_decoder_reduced_attention_dim = 8
         else:
             self.arch = "rnn"
             self.encoder_embed_dim = 10
@@ -106,6 +123,23 @@ class ModelParamsDict:
         self.left_pad_source = "False"
         self.fp16 = False
         self.cpu = None
+        self.reverse_source = False
+        self.append_eos_to_source = False
+        self.word_reward = 0.0
+        self.length_penalty = 0.0
+        # Rescoring params
+        self.enable_rescoring = False
+        self.l2r_model_path = None
+        self.l2r_model_weight = None
+        self.enable_r2l_rescoring = False
+        self.r2l_model_path = None
+        self.r2l_model_weight = None
+        self.enable_reverse_rescoring = False
+        self.reverse_model_path = None
+        self.reverse_model_weight = None
+        self.enable_lm_rescoring = False
+        self.lm_model_path = None
+        self.lm_model_weight = None
         # Modified params
         for param, value in kwargs.items():
             assert hasattr(

@@ -12,6 +12,7 @@ from pytorch_translate import rnn_cell  # noqa
 from pytorch_translate import utils as pytorch_translate_utils, vocab_reduction
 from pytorch_translate.research.lexical_choice import lexical_translation
 
+
 class ContextEmbedding(nn.Module):
     """
     This class implements context-dependent word embeddings as described in
@@ -563,6 +564,11 @@ class TransformerEncoderGivenEmbeddings(nn.Module):
 
         return x
 
+    def upgrade_state_dict_named(self, state_dict, name):
+        for i in range(len(self.layers)):
+            # update layer norms
+            self.layers[i].upgrade_state_dict_named(state_dict, f"{name}.layers.{i}")
+
 
 def TransformerTokenEmbedding(
     num_embeddings, embedding_dim, padding_idx, freeze_embed=False
@@ -579,7 +585,7 @@ def TransformerTokenEmbedding(
 
 
 class TransformerEmbedding(nn.Module):
-    def __init__(self, args, embed_tokens, left_pad):
+    def __init__(self, args, embed_tokens):
         super().__init__()
         self.dropout = args.dropout
         embed_dim = embed_tokens.embedding_dim
@@ -590,7 +596,6 @@ class TransformerEmbedding(nn.Module):
             1024,
             embed_dim,
             self.padding_idx,
-            left_pad=left_pad,
             learned=args.encoder_learned_pos,
         )
 

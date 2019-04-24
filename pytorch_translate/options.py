@@ -401,9 +401,9 @@ def validate_preprocessing_args(args):
                 or getattr(args, "multiling_train_source_text_file", None)
             )
             and (
-                getattr(args, "train_target_text_file")
-                or getattr(args, "train_target_binary_path")
-                or getattr(args, "multiling_train_target_text_file")
+                getattr(args, "train_target_text_file", None)
+                or getattr(args, "train_target_binary_path", None)
+                or getattr(args, "multiling_train_target_text_file", None)
             )
             and (
                 getattr(args, "eval_source_text_file", None)
@@ -539,6 +539,14 @@ def expand_optimization_args(group):
         help="Beam size to use for 'sequence_nll' loss and 'sequence_risk' "
         "loss. If zero, use --beam.",
     )
+    group.add_argument(
+        "--disable-eval-bleu",
+        nargs="?",
+        const=True,
+        default=False,
+        type=utils.bool_flag,
+        help=("disable bleu score evaluation on tune dataset"),
+    )
 
     return group
 
@@ -666,32 +674,16 @@ def expand_generation_args(group, train=False):
         ),
     )
     group.add_argument(
+        "--translation-info-export-path",
+        default=None,
+        type=str,
+        help=("Optional path to save translation info output in pickled format"),
+    )
+    group.add_argument(
         "--diversity-sibling-gamma",
         type=float,
         default=0.0,
         help=("The diversity rate of sibling_rank for generating diverse beams"),
-    )
-    group.add_argument(
-        "--enable-rescoring",
-        nargs="?",
-        const=True,
-        default=False,
-        type=utils.bool_flag,
-        help=("Enable running rescoring during beam decoding"),
-    )
-    group.add_argument(
-        "--enable-r2l-rescoring",
-        nargs="?",
-        const=True,
-        default=False,
-        type=utils.bool_flag,
-        help=("Enable R2L model based rescoring of hypos"),
-    )
-    group.add_argument(
-        "--r2l-model-path",
-        default=None,
-        type=str,
-        help=("Provide a path for the r2l rescoring model"),
     )
 
     # These arguments are only used during training

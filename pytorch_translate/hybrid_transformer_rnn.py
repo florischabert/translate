@@ -122,6 +122,14 @@ class HybridTransformerRNNModel(FairseqModel):
             help="num decoder attention heads",
         )
         parser.add_argument(
+            "--decoder-reduced-attention-dim",
+            type=int,
+            default=None,
+            metavar="N",
+            help="if specified, computes attention with this dimensionality "
+            "(instead of using encoder output dims)",
+        )
+        parser.add_argument(
             "--decoder-lstm-units",
             type=int,
             metavar="N",
@@ -182,25 +190,36 @@ class HybridRNNDecoder(FairseqIncrementalDecoder):
     https://arxiv.org/abs/1804.09849
     """
 
-    def _init_dims(self, args, src_dict, dst_dict, embed_tokens, left_pad):
+    def _init_dims(self, args, src_dict, dst_dict, embed_tokens):
         self.dropout = args.dropout
 
         embed_dim = embed_tokens.embedding_dim
         self.embed_tokens = embed_tokens
 
         self.lstm_units = args.decoder_lstm_units
-        self.attention_dim = args.encoder_embed_dim
         self.num_layers = args.decoder_layers
         self.initial_input_dim = embed_dim
+
+        self.encoder_output_dim = args.encoder_embed_dim
+        if args.decoder_reduced_attention_dim is None:
+            self.attention_dim = self.encoder_output_dim
+        else:
+            self.attention_dim = args.decoder_reduced_attention_dim
         self.input_dim = self.lstm_units + self.attention_dim
 
         self.num_attention_heads = args.decoder_attention_heads
         self.out_embed_dim = args.decoder_out_embed_dim
 
-    def _init_components(self, args, src_dict, dst_dict, embed_tokens, left_pad):
+    def _init_components(self, args, src_dict, dst_dict, embed_tokens):
         self.initial_rnn_layer = nn.LSTM(
             input_size=self.initial_input_dim, hidden_size=self.lstm_units
         )
+
+        self.proj_encoder_layer = None
+        if self.attention_dim != self.encoder_output_dim:
+            self.proj_encoder_layer = fairseq_transformer.Linear(
+                self.encoder_output_dim, self.attention_dim
+            )
 
         self.proj_layer = None
         if self.lstm_units != self.attention_dim:
@@ -233,10 +252,10 @@ class HybridRNNDecoder(FairseqIncrementalDecoder):
 
         self.onnx_trace = False
 
-    def __init__(self, args, src_dict, dst_dict, embed_tokens, left_pad=False):
+    def __init__(self, args, src_dict, dst_dict, embed_tokens):
         super().__init__(dst_dict)
-        self._init_dims(args, src_dict, dst_dict, embed_tokens, left_pad)
-        self._init_components(args, src_dict, dst_dict, embed_tokens, left_pad)
+        self._init_dims(args, src_dict, dst_dict, embed_tokens)
+        self._init_components(args, src_dict, dst_dict, embed_tokens)
 
     # Enable dependency injection by subclasses
     def _unpack_encoder_out(self, encoder_out):
@@ -307,6 +326,9 @@ class HybridRNNDecoder(FairseqIncrementalDecoder):
             state_outputs.extend([h_next, c_next])
 
         x = F.dropout(x, p=self.dropout, training=self.training)
+
+        if self.proj_encoder_layer is not None:
+            encoder_x = self.proj_encoder_layer(encoder_x)
 
         attention_in = x
         if self.proj_layer is not None:
@@ -391,6 +413,9 @@ class HybridRNNDecoder(FairseqIncrementalDecoder):
         )
         batch_size = torch.onnx.operators.shape_as_tensor(encoder_x)[1]
 
+        if self.proj_encoder_layer is not None:
+            encoder_x = self.proj_encoder_layer(encoder_x)
+
         states = []
         for _ in range(self.num_layers):
             hidden = self._init_hidden(encoder_out, batch_size).type_as(encoder_x)
@@ -453,11 +478,11 @@ def base_architecture(args):
     args.encoder_normalize_before = getattr(args, "encoder_normalize_before", False)
     args.decoder_pretrained_embed = getattr(args, "decoder_pretrained_embed", None)
     args.decoder_embed_dim = getattr(args, "decoder_embed_dim", args.encoder_embed_dim)
-    args.decoder_ffn_embed_dim = getattr(
-        args, "decoder_ffn_embed_dim", args.encoder_ffn_embed_dim
-    )
     args.decoder_layers = getattr(args, "decoder_layers", 2)
     args.decoder_attention_heads = getattr(args, "decoder_attention_heads", 8)
+    args.decoder_reduced_attention_dim = getattr(
+        args, "decoder_reduced_attention_dim", None
+    )
     args.decoder_lstm_units = getattr(args, "decoder_lstm_units", 512)
     args.decoder_out_embed_dim = getattr(args, "decoder_out_embed_dim", 256)
     args.decoder_freeze_embed = getattr(args, "decoder_freeze_embed", False)

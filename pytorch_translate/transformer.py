@@ -259,11 +259,11 @@ class TransformerEncoder(FairseqEncoder):
     """Transformer encoder."""
 
     def __init__(
-        self, args, dictionary, embed_tokens, left_pad=False, proj_to_decoder=True
+        self, args, dictionary, embed_tokens, proj_to_decoder=True
     ):
         super().__init__(dictionary)
         self.transformer_embedding = TransformerEmbedding(
-            args=args, embed_tokens=embed_tokens, left_pad=left_pad
+            args=args, embed_tokens=embed_tokens,
         )
 
         self.transformer_encoder_given_embeddings = TransformerEncoderGivenEmbeddings(
@@ -290,6 +290,11 @@ class TransformerEncoder(FairseqEncoder):
             x=x, positions=positions, encoder_padding_mask=encoder_padding_mask
         )
 
+        # TODO(jamesreed): this is kinda a hack because we can't annotate an
+        # Optional[Tensor] output for encoder_padding_mask
+        if encoder_padding_mask is None:
+            encoder_padding_mask = torch.empty([])
+
         return x, src_tokens, encoder_padding_mask
 
     def reorder_encoder_out(self, encoder_out, new_order):
@@ -299,6 +304,8 @@ class TransformerEncoder(FairseqEncoder):
             x = x.index_select(1, new_order)
         if src_tokens_tensor is not None:
             src_tokens_tensor = src_tokens_tensor.index_select(0, new_order)
+        if encoder_padding_mask.shape == torch.Size([]):
+            encoder_padding_mask = None
         if encoder_padding_mask is not None:
             encoder_padding_mask = encoder_padding_mask.index_select(0, new_order)
         return (x, src_tokens_tensor, encoder_padding_mask)
@@ -316,6 +323,9 @@ class TransformerEncoder(FairseqEncoder):
             state_dict[
                 f"{name}.transformer_embedding.embed_positions._float_tensor"
             ] = torch.FloatTensor(1)
+        self.transformer_encoder_given_embeddings.upgrade_state_dict_named(
+            state_dict, f"{name}.transformer_encoder_given_embeddings"
+        )
         return state_dict
 
     def set_gradient_tracking_mode(self, mode=True):
@@ -333,7 +343,7 @@ class TransformerEncoder(FairseqEncoder):
 class TransformerDecoder(FairseqIncrementalDecoder):
     """Transformer decoder."""
 
-    def __init__(self, args, src_dict, dst_dict, embed_tokens, left_pad=False):
+    def __init__(self, args, src_dict, dst_dict, embed_tokens):
         super().__init__(dst_dict)
         self.dropout = args.dropout
         self.share_input_output_embed = args.share_decoder_input_output_embed
@@ -347,7 +357,6 @@ class TransformerDecoder(FairseqIncrementalDecoder):
             1024,
             embed_dim,
             padding_idx,
-            left_pad=left_pad,
             learned=args.decoder_learned_pos,
         )
 
@@ -556,7 +565,13 @@ class TransformerDecoder(FairseqIncrementalDecoder):
 
 
 @register_model("semi_supervised_transformer")
-class SemisupervisedTransformerModel(SemiSupervisedModel):
+class SemiSupervisedTransformerModel(SemiSupervisedModel):
+    """
+    We can't use `self.single_model_cls` because at this point `__init__` hasn't
+    run. single_model_cls is a static class variable that is meant to be
+    constant
+    """
+
     single_model_cls = TransformerModel
 
     @staticmethod

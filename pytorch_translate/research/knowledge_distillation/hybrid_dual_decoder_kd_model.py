@@ -8,8 +8,8 @@ from pytorch_translate import (
 from pytorch_translate.utils import torch_find
 
 
-@register_model("dual_decoder_kd")
-class DualDecoderKDModel(FairseqModel):
+@register_model("hybrid_dual_decoder_kd")
+class HybridDualDecoderKDModel(FairseqModel):
     def __init__(self, task, encoder, teacher_decoder, student_decoder):
         super().__init__(encoder, student_decoder)
         self.teacher_decoder = teacher_decoder
@@ -18,7 +18,7 @@ class DualDecoderKDModel(FairseqModel):
         self.task = task
 
     def get_teacher_model(self):
-        return pytorch_translate_transformer.TransformerModel(
+        return hybrid_transformer_rnn.HybridTransformerRNNModel(
             self.task, self.encoder, self.teacher_decoder
         )
 
@@ -31,9 +31,9 @@ class DualDecoderKDModel(FairseqModel):
     def add_args(parser):
         """Add model-specific arguments to the parser."""
 
-        # command-line args for transformer model are used to build
+        # command-line args for hybrid_transformer_rnn model are used to build
         # encoder and teacher decoder
-        pytorch_translate_transformer.TransformerModel.add_args(parser)
+        hybrid_transformer_rnn.HybridTransformerRNNModel.add_args(parser)
 
         # distinct args for student decoder
         parser.add_argument(
@@ -92,10 +92,7 @@ class DualDecoderKDModel(FairseqModel):
         )
 
         teacher_decoder_embed_tokens = pytorch_translate_transformer.build_embedding(
-            dictionary=tgt_dict,
-            embed_dim=args.decoder_embed_dim,
-            path=args.decoder_pretrained_embed,
-            freeze=args.decoder_freeze_embed,
+            dictionary=tgt_dict, embed_dim=args.decoder_embed_dim
         )
 
         student_decoder_embed_tokens = pytorch_translate_transformer.build_embedding(
@@ -103,18 +100,18 @@ class DualDecoderKDModel(FairseqModel):
         )
 
         encoder = pytorch_translate_transformer.TransformerEncoder(
-            args, src_dict, encoder_embed_tokens, proj_to_decoder=True
+            args, src_dict, encoder_embed_tokens, proj_to_decoder=False
         )
 
-        teacher_decoder = pytorch_translate_transformer.TransformerModel.build_decoder(
-            args, src_dict, tgt_dict, embed_tokens=teacher_decoder_embed_tokens
+        teacher_decoder = hybrid_transformer_rnn.HybridRNNDecoder(
+            args, src_dict, tgt_dict, teacher_decoder_embed_tokens
         )
 
         student_decoder = StudentHybridRNNDecoder(
             args, src_dict, tgt_dict, student_decoder_embed_tokens
         )
 
-        return DualDecoderKDModel(
+        return HybridDualDecoderKDModel(
             task=task,
             encoder=encoder,
             teacher_decoder=teacher_decoder,
@@ -147,9 +144,7 @@ class StudentHybridRNNDecoder(hybrid_transformer_rnn.HybridRNNDecoder):
         self.num_layers = args.student_decoder_layers
         self.initial_input_dim = embed_dim
 
-        # for compatibility with transformer dimensions in encoder
-        # and teacher decoder are different
-        self.encoder_output_dim = args.decoder_embed_dim
+        self.encoder_output_dim = args.encoder_embed_dim
         if args.student_decoder_reduced_attention_dim is None:
             self.attention_dim = self.encoder_output_dim
         else:
@@ -160,9 +155,9 @@ class StudentHybridRNNDecoder(hybrid_transformer_rnn.HybridRNNDecoder):
         self.out_embed_dim = args.student_decoder_out_embed_dim
 
 
-@register_model_architecture("dual_decoder_kd", "dual_decoder_kd")
+@register_model_architecture("hybrid_dual_decoder_kd", "hybrid_dual_decoder_kd")
 def base_architecture(args):
-    pytorch_translate_transformer.base_architecture(args)
+    hybrid_transformer_rnn.base_architecture(args)
     args.student_decoder_embed_dim = getattr(args, "student_decoder_embed_dim", 128)
     args.student_decoder_layers = getattr(args, "student_decoder_layers", 3)
     args.student_decoder_attention_heads = getattr(
@@ -171,7 +166,4 @@ def base_architecture(args):
     args.student_decoder_lstm_units = getattr(args, "student_decoder_lstm_units", 128)
     args.student_decoder_out_embed_dim = getattr(
         args, "student_decoder_out_embed_dim", 128
-    )
-    args.student_decoder_reduced_attention_dim = getattr(
-        args, "student_decoder_reduced_attention_dim", None
     )

@@ -36,7 +36,6 @@ from pytorch_translate import weighted_criterions  # noqa
 from pytorch_translate import (
     checkpoint,
     constants,
-    data as pytorch_translate_data,
     dictionary as pytorch_translate_dictionary,
     evals,
     multi_model,
@@ -48,6 +47,7 @@ from pytorch_translate.dual_learning import dual_learning_task  # noqa
 from pytorch_translate.research.knowledge_distillation import (  # noqa
     dual_decoder_kd_loss,
     dual_decoder_kd_model,
+    hybrid_dual_decoder_kd_model,
     knowledge_distillation_loss,
 )
 from pytorch_translate.word_prediction import word_prediction_criterion  # noqa
@@ -261,8 +261,6 @@ def setup_training_model(args):
             seed=args.seed,
             use_noiser=True,
         )
-    elif args.task == "dual_learning_task":
-        task.load_dataset(split=args.train_subset, seed=args.seed)
     elif args.task == "dual_learning_task":
         task.load_dataset(split=args.train_subset, seed=args.seed)
     elif args.task == "pytorch_translate_knowledge_distillation":

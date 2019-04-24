@@ -3,11 +3,12 @@
 import argparse
 import collections
 import os
+import pickle
 from typing import List, NamedTuple, Optional
 
 import numpy as np
 import torch
-from fairseq import bleu, data, options, progress_bar, tasks, tokenizer, utils
+from fairseq import bleu, data, options, progress_bar, tasks, utils
 from fairseq.meters import StopwatchMeter, TimeMeter
 from fairseq.models import FairseqModel, FairseqMultiModel
 from pytorch_translate import hybrid_transformer_rnn  # noqa
@@ -15,17 +16,15 @@ from pytorch_translate import rnn  # noqa
 from pytorch_translate import transformer  # noqa
 from pytorch_translate import (
     beam_decode,
-    char_data,
     char_source_hybrid,
     char_source_model,
     char_source_transformer_model,
-    data as pytorch_translate_data,
     dictionary as pytorch_translate_dictionary,
     options as pytorch_translate_options,
     utils as pytorch_translate_utils,
 )
+from pytorch_translate.data import data as pytorch_translate_data
 from pytorch_translate.dual_learning.dual_learning_models import DualLearningModel
-from pytorch_translate.rescoring.rescorer import Rescorer
 from pytorch_translate.research.beam_search import competing_completed
 from pytorch_translate.research.multisource import multisource_data, multisource_decode
 from pytorch_translate.tasks.semi_supervised_task import PytorchTranslateSemiSupervised
@@ -86,7 +85,7 @@ class TranslationInfo(NamedTuple):
     hypo_str: str
     hypo_score: float
     best_hypo_tokens: Optional[torch.Tensor]
-    hypo_tokens_after_rescoring: Optional[torch.Tensor]
+    hypos: List[dict]
 
 
 def build_sequence_generator(args, task, models):
@@ -132,23 +131,7 @@ def build_sequence_generator(args, task, models):
     return translator
 
 
-def get_eval_itr(args, models, task, dataset):
-    return task.get_eval_batch_iterator(
-        dataset=dataset,
-        max_tokens=args.max_tokens,
-        max_sentences=args.max_sentences,
-        max_positions=utils.resolve_max_positions(
-            task.max_positions(), *[model.max_positions() for model in models]
-        ),
-        ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
-        required_batch_size_multiple=8,
-        num_shards=args.num_shards,
-        shard_id=args.shard_id,
-        num_workers=args.num_workers,
-    ).next_epoch_itr(shuffle=False)
-
-
-def _generate_score(models, args, task, dataset, optimize=True):
+def _generate_score(models, args, task, dataset):
     use_cuda = torch.cuda.is_available() and not args.cpu
 
     # Load ensemble
@@ -156,12 +139,11 @@ def _generate_score(models, args, task, dataset, optimize=True):
         print("| loading model(s) from {}".format(", ".join(args.path.split(":"))))
 
     # Optimize ensemble for generation
-    if optimize:
-        for model in models:
-            model.make_generation_fast_(
-                beamable_mm_beam_size=None if args.no_beamable_mm else args.beam,
-                need_attn=True,
-            )
+    for model in models:
+        model.make_generation_fast_(
+            beamable_mm_beam_size=None if args.no_beamable_mm else args.beam,
+            need_attn=True,
+        )
 
     translator = build_sequence_generator(args, task, models)
     # Load alignment dictionary for unknown word replacement
@@ -184,22 +166,29 @@ def _generate_score(models, args, task, dataset, optimize=True):
         scorer = bleu.SacrebleuScorer()
     else:
         scorer = bleu.Scorer(dst_dict.pad(), dst_dict.eos(), dst_dict.unk())
-    itr = get_eval_itr(args, models, task, dataset)
+
+    itr = task.get_batch_iterator(
+        dataset=dataset,
+        max_tokens=args.max_tokens,
+        max_sentences=args.max_sentences,
+        max_positions=utils.resolve_max_positions(
+            task.max_positions(), *[model.max_positions() for model in models]
+        ),
+        ignore_invalid_inputs=args.skip_invalid_size_inputs_valid_test,
+        required_batch_size_multiple=8,
+        num_shards=args.num_shards,
+        shard_id=args.shard_id,
+        num_workers=args.num_workers,
+    ).next_epoch_itr(shuffle=False)
 
     oracle_scorer = None
     if args.report_oracle_bleu:
         oracle_scorer = bleu.Scorer(dst_dict.pad(), dst_dict.eos(), dst_dict.unk())
 
     rescorer = None
-    rescoring_bleu_scorer = None
-    if args.enable_rescoring:
-        rescorer = Rescorer(args)
-        rescoring_bleu_scorer = bleu.Scorer(
-            dst_dict.pad(), dst_dict.eos(), dst_dict.unk()
-        )
-
     num_sentences = 0
     translation_samples = []
+    translation_info_list = []
     with progress_bar.build_progress_bar(args, itr) as t:
         wps_meter = TimeMeter()
         gen_timer = StopwatchMeter()
@@ -215,13 +204,12 @@ def _generate_score(models, args, task, dataset, optimize=True):
         for trans_info in _iter_translations(
             args, task, dataset, translations, align_dict, rescorer
         ):
-            scorer.add(trans_info.target_tokens, trans_info.hypo_tokens)
+            if hasattr(scorer, "add_string"):
+                scorer.add_string(trans_info.target_str, trans_info.hypo_str)
+            else:
+                scorer.add(trans_info.target_tokens, trans_info.hypo_tokens)
             if oracle_scorer is not None:
                 oracle_scorer.add(trans_info.target_tokens, trans_info.best_hypo_tokens)
-            if rescoring_bleu_scorer is not None:
-                rescoring_bleu_scorer.add(
-                    trans_info.target_tokens, trans_info.hypo_tokens_after_rescoring
-                )
 
             translated_sentences[trans_info.sample_id] = trans_info.hypo_str
             translated_scores[trans_info.sample_id] = trans_info.hypo_score
@@ -229,6 +217,24 @@ def _generate_score(models, args, task, dataset, optimize=True):
                 output_hypos_token_arrays[
                     trans_info.sample_id
                 ] = trans_info.best_hypo_tokens
+            if args.translation_info_export_path is not None:
+                # Strip expensive data from hypotheses before saving
+                hypos = [
+                    {k: v for k, v in hypo.items() if k in ["tokens", "score"]}
+                    for hypo in trans_info.hypos
+                ]
+                # Make sure everything is on cpu before exporting
+                hypos = [
+                    {"score": hypo["score"], "tokens": hypo["tokens"].cpu()}
+                    for hypo in hypos
+                ]
+                translation_info_list.append(
+                    {
+                        "src_tokens": trans_info.src_tokens.cpu(),
+                        "target_tokens": trans_info.target_tokens,
+                        "hypos": hypos,
+                    }
+                )
             translation_samples.append(
                 collections.OrderedDict(
                     {
@@ -248,6 +254,10 @@ def _generate_score(models, args, task, dataset, optimize=True):
         output_dataset = pytorch_translate_data.InMemoryNumpyDataset()
         output_dataset.load_from_sequences(output_hypos_token_arrays)
         output_dataset.save(args.output_hypos_binary_path)
+    if args.translation_info_export_path is not None:
+        f = open(args.translation_info_export_path, "wb")
+        pickle.dump(translation_info_list, f)
+        f.close()
 
     # If applicable, save the translations to the output file
     # For eg. external evaluation
@@ -263,11 +273,6 @@ def _generate_score(models, args, task, dataset, optimize=True):
 
     if oracle_scorer is not None:
         print(f"| Oracle BLEU (best hypo in beam): {oracle_scorer.result_string()}")
-
-    if rescoring_bleu_scorer is not None:
-        print(
-            f"| Rescoring BLEU (top hypo in beam after rescoring):{rescoring_bleu_scorer.result_string()}"
-        )
 
     return scorer, num_sentences, gen_timer, translation_samples
 
@@ -404,8 +409,8 @@ def _iter_translations(args, task, dataset, translations, align_dict, rescorer):
                 if align_dict is not None or args.remove_bpe is not None:
                     # Convert back to tokens for evaluation with unk replacement
                     # and/or without BPE
-                    target_tokens = tokenizer.Tokenizer.tokenize(
-                        target_str, task.target_dictionary, add_if_not_exist=True
+                    target_tokens = task.target_dictionary.encode_line(
+                        target_str, add_if_not_exist=True
                     )
                 # The probs score for the hypo_str; whether it's normalized by
                 # sequence length or not depends on normalize_scores, which is
@@ -423,10 +428,6 @@ def _iter_translations(args, task, dataset, translations, align_dict, rescorer):
         if not collect_oracle_hypos:
             best_hypo_tokens = top_hypo_tokens
 
-        hypo_tokens_after_rescoring = (
-            rescorer.score(src_tokens, hypos) if rescorer else None
-        )
-
         yield TranslationInfo(
             sample_id=sample_id,
             src_tokens=src_tokens,
@@ -437,7 +438,7 @@ def _iter_translations(args, task, dataset, translations, align_dict, rescorer):
             hypo_str=hypo_str,
             hypo_score=hypo_score,
             best_hypo_tokens=best_hypo_tokens,
-            hypo_tokens_after_rescoring=hypo_tokens_after_rescoring,
+            hypos=hypos,
         )
 
 

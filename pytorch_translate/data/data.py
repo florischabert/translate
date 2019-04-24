@@ -2,7 +2,7 @@
 
 import os
 import tempfile
-from typing import NamedTuple, Optional
+from typing import Dict, NamedTuple, Optional
 
 import numpy as np
 import torch
@@ -35,6 +35,11 @@ class ParallelCorpusConfig(NamedTuple):
     source: CorpusConfig
     target: CorpusConfig
     weights_file: Optional[str]
+
+
+class ParallelCorporaMapConfig(NamedTuple):
+    src_files: Dict[str, str]
+    tgt_files: Dict[str, str]
 
 
 class InMemoryNumpyDataset(data.indexed_dataset.IndexedDataset):
@@ -182,7 +187,7 @@ class InMemoryNumpyDataset(data.indexed_dataset.IndexedDataset):
                         sizes.append(len(inds))
 
         self.buffer = np.concatenate(array_list)
-        self.offsets = np.array(offsets, dtype=np.int32)
+        self.offsets = np.array(offsets, dtype=np.int64)
         self.sizes = np.array(sizes, dtype=np.int32)
         del array_list
         del offsets
