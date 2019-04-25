@@ -13,7 +13,6 @@ namespace pytorch {
 namespace translate {
 
 using TensorMap = ::caffe2::Predictor::TensorMap;
-using RawTensorMap = std::unordered_map<caffe2::TensorCPU*, DestroyCall>;
 
 class BatchedBeamSearch {
  public:

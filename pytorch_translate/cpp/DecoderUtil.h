@@ -8,8 +8,6 @@ namespace pytorch {
 namespace translate {
 
 using BeamBestIndices = std::pair<int, int>;
-// using DestroyCall = caffe2::Blob::DestroyCall;
-typedef void (*DestroyCall)(void *);
 
 struct BeamSearchTopHypotheses {
   std::pair<int32_t, int32_t> bestIndices;
