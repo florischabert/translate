@@ -4,16 +4,15 @@ NCCL_ROOT_DIR="$(pwd)/nccl_2.1.15-1+cuda8.0_x86_64"
 export NCCL_ROOT_DIR
 LD_LIBRARY_PATH="${NCCL_ROOT_DIR}/lib:${LD_LIBRARY_PATH}"
 export LD_LIBRARY_PATH
-wget https://download.pytorch.org/models/translate/iwslt14/model.tar.gz https://download.pytorch.org/models/translate/iwslt14/data.tar.gz
-tar -xvzf model.tar.gz
+wget https://download.pytorch.org/models/translate/iwslt14/data.tar.gz
 tar -xvzf data.tar.gz
-rm -f data.tar.gz model.tar.gz
+rm -f data.tar.gz
 
 python3 pytorch_translate/generate.py \
        "" \
-       --path model/averaged_checkpoint_best_0.pt \
-       --source-vocab-file model/dictionary-de.txt \
-       --target-vocab-file model/dictionary-en.txt \
+       --path checkpoints/averaged_checkpoint_best.pt \
+       --source-vocab-file checkpoints/dictionary-de.txt \
+       --target-vocab-file checkpoints/dictionary-en.txt \
        --source-text-file data/test.tok.bpe.de \
        --target-text-file data/test.tok.bpe.en \
        --unk-reward -0.5 \
