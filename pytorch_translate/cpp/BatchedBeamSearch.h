@@ -30,15 +30,13 @@ class BatchedBeamSearch {
  private:
   TensorMap prepareInitialNextInputStepMap(
       const std::vector<std::string>& encoderOutputNames,
-      const TensorMap& encoderOutputMap,
-      RawTensorMap* trackRawPointers);
+      const TensorMap& encoderOutputMap);
   TensorMap prepareNextInputStepMap(
       const std::vector<std::string>& encoderOutputNames,
       const std::vector<std::string>& stepOutputNames,
       TensorMap& encoderOutputMap,
       const TensorMap& stepOutputMap,
-      int timeStep,
-      RawTensorMap* trackRawPointers);
+      int timeStep);
 
   std::unique_ptr<::caffe2::Workspace> encoder_workspace_;
   std::unique_ptr<::caffe2::Workspace> decoder_workspace_;
