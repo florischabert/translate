@@ -59,7 +59,6 @@ def onnx_export_ensemble(module, output_path, input_tuple, input_names, output_n
             verbose=False,
             input_names=input_names,
             output_names=output_names,
-            export_type=ExportTypes.ZIP_ARCHIVE,
             operator_export_type=OperatorExportTypes.ONNX_ATEN_FALLBACK,
         )
 
@@ -366,11 +365,10 @@ class EncoderEnsemble(nn.Module):
         """
         Save encapsulated encoder export file.
         """
-        tmp_dir = tempfile.mkdtemp()
-        tmp_file = os.path.join(tmp_dir, "encoder.pb")
+        tmp_file = "encoder.onnx"
         self.onnx_export(tmp_file)
 
-        onnx_encoder = caffe2_backend.prepare_zip_archive(tmp_file)
+        onnx_encoder = caffe2_backend.prepare(onnx.load(tmp_file))
 
         save_caffe2_rep_to_db(
             caffe2_backend_rep=onnx_encoder,
@@ -872,11 +870,10 @@ class DecoderBatchedStepEnsemble(nn.Module):
         Example encoder_ensemble_outputs (PyTorch tensors) from corresponding
         encoder are necessary to run through network once.
         """
-        tmp_dir = tempfile.mkdtemp()
-        tmp_file = os.path.join(tmp_dir, "decoder_step.pb")
+        tmp_file = "decoder_step.onnx"
         self.onnx_export(tmp_file, encoder_ensemble_outputs)
 
-        onnx_decoder_step = caffe2_backend.prepare_zip_archive(tmp_file)
+        onnx_decoder_step = caffe2_backend.prepare(onnx.load(tmp_file))
 
         save_caffe2_rep_to_db(
             caffe2_backend_rep=onnx_decoder_step,
