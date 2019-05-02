@@ -116,17 +116,17 @@ def export(args):
         )
 
         # need example encoder outputs to pass through network
-        # (source length 5 is arbitrary)
+        # (source length 15 is arbitrary)
         src_dict = encoder_ensemble.src_dict
-        token_list = [src_dict.unk()] * 4 + [src_dict.eos()]
+        token_list = [src_dict.unk()] * 14 + [src_dict.eos()]
         src_tokens = torch.LongTensor(
-            np.array(token_list, dtype="int64").reshape(-1, 1)
+            np.array(token_list, dtype="int64").reshape(1, -1)
         )
         src_lengths = torch.IntTensor(np.array([len(token_list)], dtype="int32"))
         if args.char_source:
-            char_inds = torch.LongTensor(np.ones((1, 5, 3), dtype="int64"))
-            word_lengths = torch.LongTensor(np.array([3] * 5, dtype="int64")).reshape(
-                1, 5
+            char_inds = torch.LongTensor(np.ones((1, 15, 3), dtype="int64"))
+            word_lengths = torch.LongTensor(np.array([3] * 15, dtype="int64")).reshape(
+                1, 15
             )
             pytorch_encoder_outputs = encoder_ensemble(
                 src_tokens, src_lengths, char_inds, word_lengths

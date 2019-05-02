@@ -275,7 +275,7 @@ class EncoderEnsemble(nn.Module):
         states = []
 
         # (seq_length, batch_size) for compatibility with Caffe2
-        src_tokens_seq_first = src_tokens.t()
+        src_tokens_seq_first = src_tokens#.t()
 
         futures = []
         for model in self.models:
@@ -346,8 +346,8 @@ class EncoderEnsemble(nn.Module):
         # The discrepancy in types here is a temporary expedient.
         # PyTorch indexing requires int64 while support for tracing
         # pack_padded_sequence() requires int32.
-        length = 5
-        src_tokens = torch.LongTensor(np.ones((length, 1), dtype="int64"))
+        length = 15
+        src_tokens = torch.LongTensor(np.ones((1, length), dtype="int64"))
         src_lengths = torch.IntTensor(np.array([length], dtype="int32"))
 
         # generate output names
