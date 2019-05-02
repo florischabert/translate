@@ -601,7 +601,8 @@ class TransformerEmbedding(nn.Module):
 
     def forward(self, src_tokens, src_lengths):
         # Embed tokens
-        x = self.embed_tokens(src_tokens)
+        # x = self.embed_tokens(src_tokens)
+        x = self.embed_tokens.weight.unsqueeze(0).index_select(1, src_tokens.view(-1))
         src_tokens_tensor = pytorch_translate_utils.get_source_tokens_tensor(src_tokens)
         # Add position embeddings and dropout
         x = self.embed_scale * x
