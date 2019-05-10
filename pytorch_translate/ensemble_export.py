@@ -62,6 +62,23 @@ def onnx_export_ensemble(module, output_path, input_tuple, input_names, output_n
             operator_export_type=OperatorExportTypes.ONNX_ATEN_FALLBACK,
         )
 
+    # Reload ONNX model for TRT fixup
+    onnx_model = onnx.load(output_path)
+
+    # Convert INT64 inputs to INT32
+    for input in onnx_model.graph.input:
+        if input.type.tensor_type.elem_type == 7:
+            input.type.tensor_type.elem_type = 6
+
+    # Remove first input cast
+    for i, node in enumerate(onnx_model.graph.node):
+        if node.op_type == 'Cast' and node.input[0] == onnx_model.graph.input[0].name:
+            onnx_model.graph.node[i+1].input[0] = node.input[0]
+            del onnx_model.graph.node[i]
+    
+    # Save fixed model
+    onnx.save(onnx_model, output_path)
+
 
 def load_models_from_checkpoints(
     checkpoint_filenames, src_dict_filename, dst_dict_filename, lexical_dict_paths=None
