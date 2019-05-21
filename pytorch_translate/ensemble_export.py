@@ -51,6 +51,13 @@ def onnx_export_ensemble(module, output_path, input_tuple, input_names, output_n
     for name, _ in module.named_parameters():
         input_names.append(name)
 
+    import torch.onnx.symbolic
+    def embedding(g, weight, indices, padding_idx, scale_grad_by_freq, sparse):
+        weight_expanded = g.op("Unsqueeze", weight, axes_i=[0])
+        weight_expanded = g.op("Cast", weight_expanded, to_i=6)
+        return g.op("Gather", weight_expanded, indices, axis_i=1)
+    torch.onnx.symbolic.embedding = embedding
+
     with open(output_path, "w+b") as netdef_file:
         torch.onnx._export(
             module,
@@ -70,12 +77,6 @@ def onnx_export_ensemble(module, output_path, input_tuple, input_names, output_n
         if input.type.tensor_type.elem_type == 7:
             input.type.tensor_type.elem_type = 6
 
-    # Remove first input cast
-    for i, node in enumerate(onnx_model.graph.node):
-        if node.op_type == 'Cast' and node.input[0] == onnx_model.graph.input[0].name:
-            onnx_model.graph.node[i+1].input[0] = node.input[0]
-            del onnx_model.graph.node[i]
-    
     # Save fixed model
     onnx.save(onnx_model, output_path)
 

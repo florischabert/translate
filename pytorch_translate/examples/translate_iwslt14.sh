@@ -21,7 +21,7 @@ cat | pytorch_translate/cpp/build/translation_decoder \
   --source_vocab_path "checkpoints/dictionary-de.txt" \
   --target_vocab_path "checkpoints/dictionary-en.txt" \
   `# Tuneable parameters` \
-  --beam_size 6 \
+  --beam_size 1 \
   --max_out_seq_len_mult 1.1 \
   --max_out_seq_len_bias 5 \
   `# Must match your training settings` \
